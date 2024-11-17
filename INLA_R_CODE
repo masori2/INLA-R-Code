@@ -1,0 +1,271 @@
+getwd()
+setwd("C:\\Users\\masori\\Desktop\\DIABETES TERM PAPER\\DATA\\FINAL")
+getwd()
+
+dat<-DIABETES_DATA
+#Install necessary packages
+install.packages("INLA")
+install.packages("sp")
+install.packages("spdep")
+install.packages("maptools")
+install.packages("Matrix")
+
+#read_neccessary_packages
+library(INLA)
+library(sp)
+library(Matrix)
+library(spdep)
+library(classInt)
+library(maptools)
+library(RColorBrewer)
+library(SpatialEpi)
+library(mice)
+
+#If you have challenges in installing the INLA package, use whats done below
+install.packages("SpatialEpi")
+install.packages("INLA",repos=c(getOption("repos"),INLA="https://inla.r-inla-download.org/R/stable"), dep=TRUE)
+
+#Replace NAs/other characters to empty
+dat[is.na(dat)] <- ""
+dat[dat==0]<-""
+dat[dat == '#DIV/0!'] <- ""
+dat[dat=="#VALUE!"]<-""
+str(dat)
+
+#Change from Character to Number
+dat$Diabetes <-as.integer(dat$Diabetes)
+dat$Smoking<-as.numeric(dat$Smoking)
+dat$Alcohol<-as.numeric(dat$Alcohol)
+dat$Physical<-as.integer(dat$Physical)
+dat$Obesity<-as.numeric(dat$Obesity)
+dat$SVI<-as.numeric(dat$SVI)
+dat$Male <-as.integer(dat$Male)
+dat$Female <-as.integer(dat$Female)
+dat$H.Insurance <-as.integer(dat$H.Insurance)
+dat$PM25 <-as.numeric(dat$PM25)
+dat$NO2 <-as.numeric(dat$NO2)
+dat$TempMax<-as.numeric(dat$TempMax)
+str(dat)
+
+#IMPUTATION  BY MICE
+DatImpute <- mice(dat, m=5, maxit = 15,
+                  method = "pmm")
+DatImpute$imp$Diabetes
+Final_Imputed_data<-complete(DatImpute, 5)
+Final_Imputed_data$Female[is.na(Final_Imputed_data$Female)]<-mean(Final_Imputed_data$Female,na.rm=TRUE)
+         
+#IMPUTATION BY SIMPLE MEAN                                                         
+dat[is.na(dat$Diabetes)] <- mean(dat$Diabetes, na.rm=T)
+dat[dat$Diabetes==0]<-mean(dat$Diabetes, na.rm=T)
+write.csv(Final_Imputed_data, file="Diabetes3.csv", sep = ",")
+rm(list = "DatImpute")
+
+#Exploration
+ExpDiabetes <- Diabetes[,-1:-4] #Remove First 4 columns
+cor(ExpDiabetes)
+library(GGally)
+GGally::ggpairs(ExpDiabetes, columns = 1:11)
+#READING THE MAP
+USPoly <- readShapePoly("US_BOUNDARY.shp")
+DIABETES<-Diabetes2
+head(MeckPoly)
+str(MeckPoly)
+#Show the map
+plot(USPoly)
+#Calculate expected cases
+DIABETES$Expected <- expected(population=DIABETES$Population, 
+                              cases=DIABETES$Diabetes, 1)
+#Calculate SMR
+DIABETES$SMR <- DIABETES$Diabetes/DIABETES$Expected
+#Merge to Map
+
+DIABETES_INLA <- merge(USPoly, DIABETES, by="CountyFIPS")
+
+
+#The INLA Modelling
+#Build neighborhood matrix
+nb <- poly2nb(DIABETES_INLA)
+head(nb)
+#Convert the neighborhood matrix to INLA format
+nb2INLA("map.adj", nb)
+g <- inla.read.graph(filename = "map.adj")
+#Define the random effects 
+DIABETES_INLA$re_u <- 1:nrow(DIABETES_INLA@data)
+DIABETES_INLA$re_v <- 1:nrow(DIABETES_INLA@data)
+#INLA formula
+formula <- Diabetes ~ DIABETES_INLA$Smoking+DIABETES_INLA$Alcohol+
+  DIABETES_INLA$Physical+DIABETES_INLA$Obesity+DIABETES_INLA$PM25+DIABETES_INLA$NO2+DIABETES_INLA$TempMax+
+  DIABETES_INLA$Alcohol+DIABETES_INLA$White.Race+DIABETES_INLA$Latino.Race+DIABETES_INLA$Black.Race+DIABETES_INLA$H.Insurance+
+  f(re_u, model = "besag", graph = g, scale.model = TRUE) + f(re_v, model = "iid")
+#The modelling 
+res <- inla(formula, family = 	"gpoisson", data = DIABETES_INLA@data, 
+            E = DIABETES_INLA$Expected, control.predictor = list(compute = TRUE), 
+            control.compute = list(dic = TRUE))
+
+
+exp(res$summary.fixed)
+#NORMAL POISSON
+install.packages("MASS")
+library(SpatialEpi::MASS)
+MODEL22<-glm(data = Diabetes2, Diabetes ~Smoking+Physical+
+            Obesity+Poverty+PM25+NO2+TempMax+Alcohol+White.Race+Latino.Race+Black.race, family="quasipoisson")
+
+
+res$dic$dic
+#Extracting the marginals
+library(ggplot2)
+marginal1<-inla.smarginal(res$marginals.fixed$Alcohol)
+marginal2<-inla.smarginal(res$marginals.fixed$Smoking)
+marginal3<-inla.smarginal(res$marginals.fixed$Physical)
+marginal4<-inla.smarginal(res$marginals.fixed$Obesity)
+marginal5<-inla.smarginal(res$marginals.fixed$H.Insurance)
+marginal6<-inla.smarginal(res$marginals.fixed$PM25)
+marginal7<-inla.smarginal(res$marginals.fixed$NO2)
+marginal8<-inla.smarginal(res$marginals.fixed$TempMax)
+marginal9<-inla.smarginal(res$marginals.fixed$White.Race)
+marginal10<-inla.smarginal(res$marginals.fixed$Latino.Race)
+marginal11<-inla.smarginal(res$marginals.fixed$Black.race)
+marginal12<-inla.smarginal(res$marginals.fixed$`(Intercept)`)
+
+
+
+#Create Dataframe for the various marginals
+marginalA <- data.frame(marginal1)
+marginalB <- data.frame(marginal2)
+marginalC <- data.frame(marginal3)
+marginalD <- data.frame(marginal4)
+marginalE <- data.frame(marginal5)
+marginalF <- data.frame(marginal6)
+marginalG <- data.frame(marginal7)
+marginalH <- data.frame(marginal8)
+marginalI <-data.frame(marginal9)
+marginalK <-data.frame(marginal10)
+marginalL <-data.frame(marginal11)
+marginalM <-data.frame(marginal12)
+
+#Create the plots
+library(ggplot2)
+Plot_A<-ggplot(marginalA, aes(x = x, y = y)) + geom_line() + labs(x = expression(beta[1]), y = "Alcohol") +
+  geom_vline(xintercept = 0, col = "blue") 
+
+Plot_B<-ggplot(marginalB, aes(x = x, y = y)) + geom_line() + labs(x = expression(beta[2]), y = "Smoking") +
+  geom_vline(xintercept = 0, col = "blue") 
+
+Plot_C<-ggplot(marginalC, aes(x = x, y = y)) + geom_line() + labs(x = expression(beta[3]), y = "Physical.inactivity") +
+  geom_vline(xintercept = 0, col = "blue")
+
+Plot_D<-ggplot(marginalD, aes(x = x, y = y)) + geom_line() + labs(x = expression(beta[4]), y = "Obesity") +
+  geom_vline(xintercept = 0, col = "blue") 
+
+Plot_E<-ggplot(marginalE, aes(x = x, y = y)) + geom_line() + labs(x = expression(beta[5]), y = "Health.Insurance") +
+  geom_vline(xintercept = 0, col = "blue") 
+
+Plot_F<-ggplot(marginalF, aes(x = x, y = y)) + geom_line() + labs(x = expression(beta[6]), y = "PM2.5") +
+  geom_vline(xintercept = 0, col = "blue") 
+
+Plot_G<-ggplot(marginalG, aes(x = x, y = y)) + geom_line() + labs(x = expression(beta[7]), y = "NO2") +
+  geom_vline(xintercept = 0, col = "blue") 
+
+Plot_H<-ggplot(marginalH, aes(x = x, y = y)) + geom_line() + labs(x = expression(beta[8]), y = "Max.Temperature") +
+  geom_vline(xintercept = 0, col = "blue") 
+
+Plot_I<-ggplot(marginal1, aes(x = x, y = y)) + geom_line() + labs(x = expression(beta[9]), y = "White.Race") +
+  geom_vline(xintercept = 0, col = "blue") 
+
+Plot_K<-ggplot(marginalK, aes(x = x, y = y)) + geom_line() + labs(x = expression(beta[10]), y = "Latino") +
+  geom_vline(xintercept = 0, col = "blue") 
+
+Plot_L<-ggplot(marginalL, aes(x = x, y = y)) + geom_line() + labs(x = expression(beta[11]), y = "Black.race") +
+  geom_vline(xintercept = 0, col = "blue") 
+
+Plot_M<-ggplot(marginalM, aes(x = x, y = y)) + geom_line() + labs(x = expression(beta[12]), y = "Intercept") +
+  geom_vline(xintercept = 0, col = "blue") 
+
+
+#Combining the plot 
+install.packages("gridExtra")
+library(gridExtra)
+
+grid.arrange(Plot_A, Plot_B, Plot_C, Plot_D, 
+             Plot_E, Plot_F, Plot_G,Plot_H, nrow=4, ncol=2)
+
+ A<-ggplot(VIOLIN, aes(State, Diabetes), 
+            fill = States)+ 
+  geom_violin() + geom_boxplot(width = .2)+labs(x="States", y=",")
+
+ library(rcompanion)
+ plotNormalHistogram(DIABETES_INLA$Diabetes, prob = F,
+                     main = "",
+                     length = 10000)
+ 
+ 
+#Attach INLA results to Map
+head(res$summary.fitted.values)
+DIABETES_INLA$RR <- res$summary.fitted.values[, "mean"]
+DIABETES_INLA$LL <- res$summary.fitted.values[, "0.025quant"]
+DIABETES_INLA$UL <- res$summary.fitted.values[, "0.975quant"]
+DIABETES_INLA$Residuals<-res$residuals$deviance.residuals
+
+#Export Results to CSV
+write.csv(DIABETES_INLA, "C:\\Users\\masori\\Desktop\\DIABETES TERM PAPER\\DATA\\FINAL\\ANALYSIS\\DIABETES_RISK5.csv", row.names=FALSE)
+
+
+#Geosmooth of bivariate scatter plot
+# Alcohol 
+ggp<-ggplot(Diabetes2, aes(Diabetes2$Alcohol, log(Diabetes)) ) +
+  geom_point() 
+
+MODA<-ggp+geom_smooth(method = "loess",
+                formula = y ~ x)
+MODA
+
+#Smoking
+ggp1<-ggplot(Diabetes2, aes(Smoking, log(Diabetes)) ) +
+  geom_point() 
+MODA2<-ggp+geom_smooth(method = "loess",
+                      formula = y ~ x)
+
+#Physical excercise 
+ggp2<-ggplot(Diabetes2, aes(Physical, log(Diabetes)) ) +
+  geom_point() 
+MODB <- ggp+geom_smooth(method = "loess",
+                      formula = y ~ x)
+
+#Obesity
+ggp3<-ggplot(Diabetes2, aes(Obesity, log(Diabetes)) ) +
+  geom_point() 
+MODC<-ggp+geom_smooth(method = "loess",
+                      formula = y ~ x)
+
+#Health Insurance
+ggp4<-ggplot(Diabetes2, aes(H.Insurance, log(Diabetes)) ) +
+  geom_point() 
+MODD<-ggp+geom_smooth(method = "loess",
+                   formula = y ~ x)
+
+#PM25
+ggp6<-ggplot(Diabetes2, aes(PM25, log(Diabetes)) ) +
+  geom_point() 
+MODF1<-ggp+geom_smooth(method = "loess",
+                   formula = y ~ x)
+
+#NO2
+ggp7<-ggplot(Diabetes2, aes(NO2, log(Diabetes)) ) +
+  geom_point() 
+MODG<-ggp+geom_smooth(method = "loess",
+                   formula = y ~ x)
+#Max Temperature
+ggp8<-ggplot(Diabetes2, aes(TempMax, log(Diabetes)) ) +
+  geom_point() 
+MODH<-ggp+geom_smooth(method = "loess",
+                   formula = y ~ x)
+
+MODH
+
+#MERGED FOR THE PLOTS
+
+grid.arrange(MODA,MODA2,MODB,MODC,MODD,MODF1,MODG, MODH,  nrow=4, ncol=2)
+
+
+
+
